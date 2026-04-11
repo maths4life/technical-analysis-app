@@ -6,121 +6,146 @@ from streamlit_lightweight_charts import renderLightweightCharts
 # ================= PAGE CONFIG =================
 st.set_page_config(layout="wide", page_title="Quant Terminal", page_icon="📈")
 
+# ================= UI STYLE =================
 st.markdown("""
-    <style>
-    [data-testid="stMetricValue"] { font-size: 24px; color: #00E5FF; }
-    .stApp { background-color: #0b0e11; }
-    </style>
-    """, unsafe_allow_html=True)
+<style>
+.stApp { background-color: #0b0e11; }
+[data-testid="stMetricValue"] { font-size: 22px; color: #00E5FF; }
+.block-container { padding: 1rem 2rem; }
+</style>
+""", unsafe_allow_html=True)
 
-# ================= DATA ENGINE =================
+# ================= DATA =================
 @st.cache_data(ttl=3600)
-def fetch_and_clean_data(ticker, period="1y"):
-    try:
-        # Fetching with auto_adjust=True to avoid some common yfinance formatting issues
-        df = yf.download(ticker, period=period, auto_adjust=True)
-        if df.empty:
-            return None
-        
-        # Flatten columns
-        df.columns = [col[0] if isinstance(col, tuple) else col for col in df.columns]
-        df = df.reset_index()
-        
-        # Format time to string (YYYY-MM-DD)
-        df['time'] = df['Date'].dt.strftime('%Y-%m-%d')
-        
-        # Calculate Indicators
-        df['MA20'] = df['Close'].rolling(20).mean()
-        df['MA50'] = df['Close'].rolling(50).mean()
-        
-        delta = df['Close'].diff()
-        gain = delta.clip(lower=0).rolling(14).mean()
-        loss = (-delta.clip(upper=0)).rolling(14).mean()
-        rs = gain / loss
-        df['RSI'] = 100 - (100 / (1 + rs))
-        
-        return df
-    except Exception as e:
+def fetch_data(ticker, period):
+    df = yf.download(ticker, period=period, auto_adjust=False)
+
+    if df.empty:
         return None
+
+    # Fix columns
+    df.columns = [col[0] if isinstance(col, tuple) else col for col in df.columns]
+
+    df = df.reset_index()
+    df['Date'] = pd.to_datetime(df['Date'])
+
+    # REQUIRED FORMAT for lightweight charts
+    df['time'] = df['Date'].dt.strftime('%Y-%m-%d')
+
+    # Indicators
+    df['MA20'] = df['Close'].rolling(20).mean()
+    df['MA50'] = df['Close'].rolling(50).mean()
+
+    return df
 
 # ================= SIDEBAR =================
 with st.sidebar:
     st.title("📊 Terminal Settings")
-    ticker = st.text_input("Symbol", value="RELIANCE.NS").upper()
-    time_frame = st.selectbox("History", ["1y", "2y", "5y", "max"])
-    
+
+    ticker = st.text_input("Symbol", "RELIANCE.NS").upper()
+
+    period = st.selectbox(
+        "History",
+        ["6mo", "1y", "2y", "5y"],
+        index=1
+    )
+
     st.divider()
-    st.subheader("Overlays")
-    show_ma20 = st.checkbox("20-Day MA (Yellow)", value=True)
-    show_ma50 = st.checkbox("50-Day MA (Blue)", value=True)
-    
-    if st.button("Force Refresh"):
+    st.subheader("Indicators")
+
+    show_ma20 = st.checkbox("MA20", True)
+    show_ma50 = st.checkbox("MA50", True)
+
+    if st.button("Refresh"):
         st.cache_data.clear()
         st.rerun()
 
-# ================= MAIN INTERFACE =================
-df = fetch_and_clean_data(ticker, time_frame)
+# ================= MAIN =================
+df = fetch_data(ticker, period)
 
-if df is not None:
-    # 1. METRICS (Using the last valid index)
-    last_idx = df['RSI'].last_valid_index()
-    last_row = df.loc[last_idx]
-    
-    # Calculate price change
-    prev_close = df['Close'].iloc[-2] if len(df) > 1 else last_row['Close']
-    change = ((last_row['Close'] - prev_close) / prev_close) * 100
+if df is None:
+    st.error("Invalid ticker or no data")
+    st.stop()
 
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Live Price", f"₹{last_row['Close']:,.2f}", f"{change:+.2f}%")
-    col2.metric("RSI (14)", f"{last_row['RSI']:.2f}")
-    col3.metric("MA 20", f"₹{last_row['MA20']:,.2f}" if not pd.isna(last_row['MA20']) else "N/A")
-    col4.metric("MA 50", f"₹{last_row['MA50']:,.2f}" if not pd.isna(last_row['MA50']) else "N/A")
+# ================= METRICS =================
+last = df.iloc[-1]
+prev = df.iloc[-2]
 
-    # 2. PREPARE JSON DATA (The Fix: .dropna() here prevents the TypeError)
-    # We drop any rows that don't have price data
-    chart_data = df[['time', 'Open', 'High', 'Low', 'Close']].dropna().rename(
-        columns={'Open': 'open', 'High': 'high', 'Low': 'low', 'Close': 'close'}
-    ).to_dict('records')
+change = ((last['Close'] - prev['Close']) / prev['Close']) * 100
 
-    # Indicators (Ensuring no NaNs)
-    ma20_list = df[['time', 'MA20']].dropna().rename(columns={'MA20': 'value'}).to_dict('records')
-    ma50_list = df[['time', 'MA50']].dropna().rename(columns={'MA50': 'value'}).to_dict('records')
+c1, c2, c3, c4 = st.columns(4)
 
-    # 3. CHART UI CONFIG
-    chart_options = {
-        "layout": {
-            "background": {"type": "solid", "color": "#0b0e11"},
-            "textColor": "#d1d4dc",
-        },
-        "grid": {
-            "vertLines": {"color": "rgba(42, 46, 57, 0.1)"},
-            "horzLines": {"color": "rgba(42, 46, 57, 0.1)"},
-        },
-        "priceScale": {"mode": 1, "autoScale": True},
-        "timeScale": {"barSpacing": 10, "rightOffset": 5},
-    }
+c1.metric("Price", f"₹ {last['Close']:.2f}", f"{change:.2f}%")
+c2.metric("High", f"₹ {last['High']:.2f}")
+c3.metric("Low", f"₹ {last['Low']:.2f}")
+c4.metric("Volume", f"{int(last['Volume']):,}" if 'Volume' in df else "N/A")
 
-    series_config = [
-        {
-            "type": "Candlestick", 
-            "data": chart_data, 
-            "options": {
-                "upColor": "#26a69a", "downColor": "#ef5350",
-                "borderVisible": False, "wickUpColor": "#26a69a", "wickDownColor": "#ef5350"
-            }
+# ================= CHART DATA =================
+candles = df[['time', 'Open', 'High', 'Low', 'Close']].rename(columns={
+    'Open': 'open',
+    'High': 'high',
+    'Low': 'low',
+    'Close': 'close'
+}).to_dict('records')
+
+series = [
+    {
+        "type": "Candlestick",
+        "data": candles,
+        "options": {
+            "upColor": "#22c55e",
+            "downColor": "#ef4444",
+            "borderVisible": False,
+            "wickUpColor": "#22c55e",
+            "wickDownColor": "#ef4444"
         }
-    ]
+    }
+]
 
-    if show_ma20 and ma20_list:
-        series_config.append({"type": "Line", "data": ma20_list, "options": {"color": "#E3D231", "lineWidth": 1.5}})
-    
-    if show_ma50 and ma50_list:
-        series_config.append({"type": "Line", "data": ma50_list, "options": {"color": "#2962FF", "lineWidth": 1.5}})
+# Add indicators safely (NO NaNs)
+if show_ma20:
+    ma20 = df[['time', 'MA20']].dropna().rename(columns={'MA20': 'value'}).to_dict('records')
+    series.append({
+        "type": "Line",
+        "data": ma20,
+        "options": {"color": "#facc15", "lineWidth": 1}
+    })
 
-    # 4. RENDER
-    st.subheader(f"Technical Chart: {ticker}")
-    # Height fixed at 600 as per your previous error screenshot
-    renderLightweightCharts(series_config, chart_options, height=600)
+if show_ma50:
+    ma50 = df[['time', 'MA50']].dropna().rename(columns={'MA50': 'value'}).to_dict('records')
+    series.append({
+        "type": "Line",
+        "data": ma50,
+        "options": {"color": "#3b82f6", "lineWidth": 1}
+    })
 
-else:
-    st.error("Invalid ticker or could not fetch data. Please try again.")
+# ================= CHART OPTIONS =================
+chart_options = {
+    "layout": {
+        "background": {"type": "solid", "color": "#0b0e11"},
+        "textColor": "#d1d4dc",
+    },
+    "grid": {
+        "vertLines": {"color": "rgba(255,255,255,0.05)"},
+        "horzLines": {"color": "rgba(255,255,255,0.05)"},
+    },
+    "crosshair": {"mode": 1},
+    "timeScale": {
+        "timeVisible": True,
+        "secondsVisible": False
+    }
+}
+
+# ================= FIXED RENDER =================
+chart = {
+    "chart": chart_options,
+    "series": series
+}
+
+st.subheader(f"📈 {ticker} Chart")
+
+renderLightweightCharts([chart], height=600)
+
+# ================= DATA TABLE =================
+with st.expander("📋 View Raw Data"):
+    st.dataframe(df.tail(50), use_container_width=True)
