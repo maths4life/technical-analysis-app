@@ -6,7 +6,6 @@ from streamlit_lightweight_charts import renderLightweightCharts
 # ================= PAGE CONFIG =================
 st.set_page_config(layout="wide", page_title="Quant Terminal", page_icon="📈")
 
-# Clean UI Styling
 st.markdown("""
     <style>
     [data-testid="stMetricValue"] { font-size: 24px; color: #00E5FF; }
@@ -18,18 +17,19 @@ st.markdown("""
 @st.cache_data(ttl=3600)
 def fetch_and_clean_data(ticker, period="1y"):
     try:
-        df = yf.download(ticker, period=period, auto_adjust=False)
+        # Fetching with auto_adjust=True to avoid some common yfinance formatting issues
+        df = yf.download(ticker, period=period, auto_adjust=True)
         if df.empty:
             return None
         
-        # Flatten columns if MultiIndex
+        # Flatten columns
         df.columns = [col[0] if isinstance(col, tuple) else col for col in df.columns]
         df = df.reset_index()
         
-        # FORMAT FOR LIGHTWEIGHT CHARTS: 'time' must be YYYY-MM-DD string
+        # Format time to string (YYYY-MM-DD)
         df['time'] = df['Date'].dt.strftime('%Y-%m-%d')
         
-        # INDICATORS
+        # Calculate Indicators
         df['MA20'] = df['Close'].rolling(20).mean()
         df['MA50'] = df['Close'].rolling(50).mean()
         
@@ -41,7 +41,6 @@ def fetch_and_clean_data(ticker, period="1y"):
         
         return df
     except Exception as e:
-        st.error(f"Error fetching data: {e}")
         return None
 
 # ================= SIDEBAR =================
@@ -63,24 +62,27 @@ with st.sidebar:
 df = fetch_and_clean_data(ticker, time_frame)
 
 if df is not None:
-    # 1. KEY METRICS BAR
-    last_row = df.iloc[-1]
-    prev_close = df['Close'].iloc[-2]
+    # 1. METRICS (Using the last valid index)
+    last_idx = df['RSI'].last_valid_index()
+    last_row = df.loc[last_idx]
+    
+    # Calculate price change
+    prev_close = df['Close'].iloc[-2] if len(df) > 1 else last_row['Close']
     change = ((last_row['Close'] - prev_close) / prev_close) * 100
 
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("Live Price", f"₹{last_row['Close']:,.2f}", f"{change:+.2f}%")
     col2.metric("RSI (14)", f"{last_row['RSI']:.2f}")
-    col3.metric("MA 20", f"₹{last_row['MA20']:,.2f}")
-    col4.metric("MA 50", f"₹{last_row['MA50']:,.2f}")
+    col3.metric("MA 20", f"₹{last_row['MA20']:,.2f}" if not pd.isna(last_row['MA20']) else "N/A")
+    col4.metric("MA 50", f"₹{last_row['MA50']:,.2f}" if not pd.isna(last_row['MA50']) else "N/A")
 
-    # 2. PREPARE JSON DATA (Strict Formatting)
-    # Candlestick data
-    chart_data = df[['time', 'Open', 'High', 'Low', 'Close']].rename(
+    # 2. PREPARE JSON DATA (The Fix: .dropna() here prevents the TypeError)
+    # We drop any rows that don't have price data
+    chart_data = df[['time', 'Open', 'High', 'Low', 'Close']].dropna().rename(
         columns={'Open': 'open', 'High': 'high', 'Low': 'low', 'Close': 'close'}
     ).to_dict('records')
 
-    # Indicators (Filter out NaNs to prevent TypeErrors)
+    # Indicators (Ensuring no NaNs)
     ma20_list = df[['time', 'MA20']].dropna().rename(columns={'MA20': 'value'}).to_dict('records')
     ma50_list = df[['time', 'MA50']].dropna().rename(columns={'MA50': 'value'}).to_dict('records')
 
@@ -91,14 +93,13 @@ if df is not None:
             "textColor": "#d1d4dc",
         },
         "grid": {
-            "vertLines": {"color": "rgba(42, 46, 57, 0.2)"},
-            "horzLines": {"color": "rgba(42, 46, 57, 0.2)"},
+            "vertLines": {"color": "rgba(42, 46, 57, 0.1)"},
+            "horzLines": {"color": "rgba(42, 46, 57, 0.1)"},
         },
         "priceScale": {"mode": 1, "autoScale": True},
         "timeScale": {"barSpacing": 10, "rightOffset": 5},
     }
 
-    # Define the series layers
     series_config = [
         {
             "type": "Candlestick", 
@@ -118,9 +119,8 @@ if df is not None:
 
     # 4. RENDER
     st.subheader(f"Technical Chart: {ticker}")
+    # Height fixed at 600 as per your previous error screenshot
     renderLightweightCharts(series_config, chart_options, height=600)
 
-    with st.expander("Show History Log"):
-        st.dataframe(df.tail(10), use_container_width=True)
 else:
-    st.warning("Please enter a valid ticker to load the analysis terminal.")
+    st.error("Invalid ticker or could not fetch data. Please try again.")
