@@ -1,142 +1,116 @@
 import streamlit as st
 import yfinance as yf
 import pandas as pd
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
+from streamlit_lightweight_charts import renderLightweightCharts
 
+# ================= PAGE CONFIG =================
+st.set_page_config(layout="wide", page_title="Pro-Quant Terminal", page_icon="📈")
 
-# ================= FETCH =================
-def fetch_data(stock, period="5y"):
-    data = yf.download(stock, period=period, auto_adjust=False)
+# Custom CSS for a cleaner "SaaS" look
+st.markdown("""
+    <style>
+    [data-testid="stMetricValue"] { font-size: 22px; color: #00E5FF; }
+    .stApp { background-color: #0b0e11; }
+    </style>
+    """, unsafe_allow_html=True)
 
-    # Fix column format
+# ================= DATA FETCHING =================
+@st.cache_data(ttl=3600)
+def fetch_data(ticker, period="1y"):
+    data = yf.download(ticker, period=period, auto_adjust=False)
     data.columns = [col[0] if isinstance(col, tuple) else col for col in data.columns]
+    data = data.reset_index()
+    data['time'] = data['Date'].dt.strftime('%Y-%m-%d')
+    return data
 
-    # Ensure datetime index
-    data.index = pd.to_datetime(data.index)
-
-    return data[['Open', 'High', 'Low', 'Close']].astype(float).dropna()
-
-
-# ================= INDICATORS =================
-def add_indicators(data):
-    data['MA20'] = data['Close'].rolling(20).mean()
-    data['MA50'] = data['Close'].rolling(50).mean()
-
-    delta = data['Close'].diff()
+def add_indicators(df):
+    # Moving Averages
+    df['MA20'] = df['Close'].rolling(20).mean()
+    df['MA50'] = df['Close'].rolling(50).mean()
+    
+    # RSI
+    delta = df['Close'].diff()
     gain = delta.clip(lower=0).rolling(14).mean()
     loss = (-delta.clip(upper=0)).rolling(14).mean()
     rs = gain / loss
-    data['RSI'] = 100 - (100 / (1 + rs))
+    df['RSI'] = 100 - (100 / (1 + rs))
+    return df
 
-    return data
+# ================= SIDEBAR UI =================
+with st.sidebar:
+    st.title("⚙️ Parameters")
+    ticker = st.text_input("Stock Ticker", value="MSFT").upper()
+    time_frame = st.selectbox("Timeframe", ["1y", "2y", "5y", "max"], index=0)
+    
+    st.divider()
+    st.subheader("Indicators")
+    show_ma20 = st.checkbox("MA 20 (Yellow)", value=True)
+    show_ma50 = st.checkbox("MA 50 (Blue)", value=True)
+    
+    if st.button("Refresh Data"):
+        st.rerun()
 
+# ================= MAIN UI =================
+df = fetch_data(ticker, time_frame)
+df = add_indicators(df)
 
-# ================= CHART =================
-def create_chart(data, stock):
+if not df.empty:
+    # 1. TOP METRICS ROW
+    last_price = df['Close'].iloc[-1]
+    prev_price = df['Close'].iloc[-2]
+    delta_price = ((last_price - prev_price) / prev_price) * 100
+    current_rsi = df['RSI'].iloc[-1]
 
-    fig = make_subplots(
-        rows=2, cols=1,
-        shared_xaxes=True,
-        vertical_spacing=0.03,
-        row_width=[0.25, 0.75]
-    )
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric(f"{ticker} Price", f"${last_price:,.2f}", f"{delta_price:+.2f}%")
+    m2.metric("RSI (14)", f"{current_rsi:.2f}", "Overbought" if current_rsi > 70 else "Oversold" if current_rsi < 30 else "Neutral")
+    m3.metric("MA 20", f"${df['MA20'].iloc[-1]:,.2f}")
+    m4.metric("MA 50", f"${df['MA50'].iloc[-1]:,.2f}")
 
-    # ----- CANDLE -----
-    fig.add_trace(go.Candlestick(
-        x=data.index,
-        open=data['Open'],
-        high=data['High'],
-        low=data['Low'],
-        close=data['Close'],
-        increasing_line_color='#00C853',
-        decreasing_line_color='#D50000',
-        name="Price"
-    ), row=1, col=1)
+    # 2. PREPARE CHART DATA
+    # Lightweight charts expects specific keys: time, open, high, low, close
+    chart_data = df[['time', 'Open', 'High', 'Low', 'Close']].rename(columns={
+        'Open': 'open', 'High': 'high', 'Low': 'low', 'Close': 'close'
+    }).to_dict('records')
 
-    # ----- MOVING AVERAGES -----
-    fig.add_trace(go.Scatter(
-        x=data.index, y=data['MA20'],
-        name="MA20",
-        line=dict(color='#FFD600', width=1.5)
-    ), row=1, col=1)
+    ma20_data = df[['time', 'MA20']].rename(columns={'MA20': 'value'}).dropna().to_dict('records')
+    ma50_data = df[['time', 'MA50']].rename(columns={'MA50': 'value'}).dropna().to_dict('records')
 
-    fig.add_trace(go.Scatter(
-        x=data.index, y=data['MA50'],
-        name="MA50",
-        line=dict(color='#2962FF', width=1.5)
-    ), row=1, col=1)
+    # 3. CHART CONFIGURATION
+    chart_options = {
+        "layout": {
+            "background": {"type": "solid", "color": "#0b0e11"},
+            "textColor": "#d1d4dc",
+        },
+        "grid": {
+            "vertLines": {"color": "rgba(42, 46, 57, 0.5)"},
+            "horzLines": {"color": "rgba(42, 46, 57, 0.5)"},
+        },
+        "crosshair": {"mode": 0},
+        "priceScale": {"borderColor": "rgba(197, 203, 206, 0.8)"},
+        "timeScale": {"borderColor": "rgba(197, 203, 206, 0.8)", "barSpacing": 10},
+    }
 
-    # ----- RSI -----
-    fig.add_trace(go.Scatter(
-        x=data.index, y=data['RSI'],
-        name="RSI",
-        line=dict(color='#00E5FF')
-    ), row=2, col=1)
+    # Render the Chart
+    st.subheader(f"Technical Analysis: {ticker}")
+    
+    series_config = [
+        {"type": "Candlestick", "data": chart_data, "options": {
+            "upColor": "#26a69a", "downColor": "#ef5350", 
+            "borderVisible": False, "wickUpColor": "#26a69a", "wickDownColor": "#ef5350"
+        }}
+    ]
+    
+    if show_ma20:
+        series_config.append({"type": "Line", "data": ma20_data, "options": {"color": "#E3D231", "lineWidth": 2}})
+    if show_ma50:
+        series_config.append({"type": "Line", "data": ma50_data, "options": {"color": "#2962FF", "lineWidth": 2}})
 
-    fig.add_hline(y=70, line=dict(color='red', dash='dash'), row=2, col=1)
-    fig.add_hline(y=30, line=dict(color='green', dash='dash'), row=2, col=1)
+    renderLightweightCharts(series_config, chart_options, height=500)
 
-    # ----- DEFAULT 6 MONTH VIEW (FIXED) -----
-    end_date = data.index.max()
-    start_date = end_date - pd.Timedelta(days=180)
+    # 4. DATA TABLE (Collapsed)
+    with st.expander("View Raw Data"):
+        st.dataframe(df.tail(20), use_container_width=True)
 
-    recent = data.loc[start_date:end_date]
-
-    if not recent.empty:
-        fig.update_xaxes(range=[recent.index[0], recent.index[-1]])
-
-        fig.update_yaxes(
-            range=[recent['Low'].min()*0.98, recent['High'].max()*1.02],
-            row=1, col=1
-        )
-
-    fig.update_yaxes(range=[0, 100], row=2, col=1)
-
-    # ----- STYLE -----
-    fig.update_layout(
-        title=stock,
-        template='plotly_dark',
-        height=800,
-        dragmode='pan',
-        hovermode='x unified'
-    )
-
-    fig.update_xaxes(
-        rangeslider_visible=False,
-        showgrid=True,
-        gridcolor='rgba(255,255,255,0.05)'
-    )
-
-    fig.update_yaxes(
-        showgrid=True,
-        gridcolor='rgba(255,255,255,0.05)'
-    )
-
-    return fig
-
-
-# ================= STREAMLIT APP =================
-st.set_page_config(layout="wide")
-st.title("📈 Live Stock Chart")
-
-stock = st.text_input("Enter Stock Ticker", "RELIANCE.NS")
-
-# Fetch data
-data = fetch_data(stock)
-
-if data.empty:
-    st.error("Invalid stock ticker or no data found")
-    st.stop()
-
-# Indicators
-data = add_indicators(data)
-
-# Chart
-fig = create_chart(data, stock)
-
-st.plotly_chart(fig, use_container_width=True)
-
-# Refresh option
-if st.checkbox("🔄 Auto Refresh"):
-    st.rerun()
+else:
+    st.error("No data found for the given ticker.")
