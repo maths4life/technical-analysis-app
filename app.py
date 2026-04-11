@@ -6,7 +6,7 @@ from streamlit_lightweight_charts import renderLightweightCharts
 # ================= PAGE CONFIG =================
 st.set_page_config(layout="wide", page_title="Quant Terminal", page_icon="📈")
 
-# ================= UI STYLE =================
+# ================= UI =================
 st.markdown("""
 <style>
 .stApp { background-color: #0b0e11; }
@@ -29,7 +29,7 @@ def fetch_data(ticker, period):
     df = df.reset_index()
     df['Date'] = pd.to_datetime(df['Date'])
 
-    # REQUIRED FORMAT for lightweight charts
+    # REQUIRED format
     df['time'] = df['Date'].dt.strftime('%Y-%m-%d')
 
     # Indicators
@@ -40,18 +40,17 @@ def fetch_data(ticker, period):
 
 # ================= SIDEBAR =================
 with st.sidebar:
-    st.title("📊 Terminal Settings")
+    st.title("📊 Settings")
 
-    ticker = st.text_input("Symbol", "RELIANCE.NS").upper()
+    ticker = st.text_input("Ticker", "RELIANCE.NS").upper()
 
     period = st.selectbox(
-        "History",
+        "Timeframe",
         ["6mo", "1y", "2y", "5y"],
         index=1
     )
 
     st.divider()
-    st.subheader("Indicators")
 
     show_ma20 = st.checkbox("MA20", True)
     show_ma50 = st.checkbox("MA50", True)
@@ -81,12 +80,21 @@ c3.metric("Low", f"₹ {last['Low']:.2f}")
 c4.metric("Volume", f"{int(last['Volume']):,}" if 'Volume' in df else "N/A")
 
 # ================= CHART DATA =================
+
+# Candles
 candles = df[['time', 'Open', 'High', 'Low', 'Close']].rename(columns={
     'Open': 'open',
     'High': 'high',
     'Low': 'low',
     'Close': 'close'
 }).to_dict('records')
+
+# Ensure numbers are plain Python floats (IMPORTANT FIX)
+for row in candles:
+    row['open'] = float(row['open'])
+    row['high'] = float(row['high'])
+    row['low'] = float(row['low'])
+    row['close'] = float(row['close'])
 
 series = [
     {
@@ -102,22 +110,26 @@ series = [
     }
 ]
 
-# Add indicators safely (NO NaNs)
+# Indicators (clean NaNs + float fix)
 if show_ma20:
-    ma20 = df[['time', 'MA20']].dropna().rename(columns={'MA20': 'value'}).to_dict('records')
-    series.append({
-        "type": "Line",
-        "data": ma20,
-        "options": {"color": "#facc15", "lineWidth": 1}
-    })
+    ma20 = df[['time', 'MA20']].dropna()
+    ma20 = [{"time": r['time'], "value": float(r['MA20'])} for _, r in ma20.iterrows()]
+    if ma20:
+        series.append({
+            "type": "Line",
+            "data": ma20,
+            "options": {"color": "#facc15", "lineWidth": 1}
+        })
 
 if show_ma50:
-    ma50 = df[['time', 'MA50']].dropna().rename(columns={'MA50': 'value'}).to_dict('records')
-    series.append({
-        "type": "Line",
-        "data": ma50,
-        "options": {"color": "#3b82f6", "lineWidth": 1}
-    })
+    ma50 = df[['time', 'MA50']].dropna()
+    ma50 = [{"time": r['time'], "value": float(r['MA50'])} for _, r in ma50.iterrows()]
+    if ma50:
+        series.append({
+            "type": "Line",
+            "data": ma50,
+            "options": {"color": "#3b82f6", "lineWidth": 1}
+        })
 
 # ================= CHART OPTIONS =================
 chart_options = {
@@ -136,7 +148,8 @@ chart_options = {
     }
 }
 
-# ================= FIXED RENDER =================
+# ================= FINAL RENDER =================
+
 chart = {
     "chart": chart_options,
     "series": series
@@ -144,8 +157,12 @@ chart = {
 
 st.subheader(f"📈 {ticker} Chart")
 
-renderLightweightCharts([chart], height=600)
+# SAFE CALL (works across versions)
+try:
+    renderLightweightCharts([chart], key="main_chart")
+except TypeError:
+    renderLightweightCharts([chart])
 
 # ================= DATA TABLE =================
-with st.expander("📋 View Raw Data"):
+with st.expander("📋 Raw Data"):
     st.dataframe(df.tail(50), use_container_width=True)
