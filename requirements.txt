@@ -1,5 +1,5 @@
 streamlit
 yfinance
 pandas
+streamlit-lightweight-charts==0.7.20
 plotly
-streamlit-lightweight-charts
