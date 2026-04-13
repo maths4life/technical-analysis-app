@@ -89,7 +89,7 @@ candles = df[['time', 'Open', 'High', 'Low', 'Close']].rename(columns={
     'Close': 'close'
 }).to_dict('records')
 
-# Ensure numbers are plain Python floats (IMPORTANT FIX)
+# Ensure numbers are plain Python floats
 for row in candles:
     row['open'] = float(row['open'])
     row['high'] = float(row['high'])
@@ -110,7 +110,7 @@ series = [
     }
 ]
 
-# Indicators (clean NaNs + float fix)
+# Indicators
 if show_ma20:
     ma20 = df[['time', 'MA20']].dropna()
     ma20 = [{"time": r['time'], "value": float(r['MA20'])} for _, r in ma20.iterrows()]
@@ -149,7 +149,6 @@ chart_options = {
 }
 
 # ================= FINAL RENDER =================
-
 chart = {
     "chart": chart_options,
     "series": series
@@ -157,7 +156,6 @@ chart = {
 
 st.subheader(f"📈 {ticker} Chart")
 
-# SAFE CALL (works across versions)
 try:
     renderLightweightCharts([chart], key="main_chart")
 except TypeError:
