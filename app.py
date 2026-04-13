@@ -85,8 +85,8 @@ with st.sidebar:
     ticker_raw = st.text_input("Symbol", "RELIANCE.NS", help="NSE: .NS  |  BSE: .BO")
     ticker = ticker_raw.strip().upper()
     st.markdown("""<div style="font-family:'Space Mono',monospace;font-size:0.53rem;color:#2A3344;letter-spacing:0.07em;margin-top:-0.4rem;margin-bottom:0.8rem;line-height:1.8;">e.g. INFY.NS · TCS.NS · HDFCBANK.NS<br>WIPRO.NS · ^NSEI · ^BSESN</div>""", unsafe_allow_html=True)
-    period = st.selectbox("Period", ["3mo", "6mo", "1y", "2y", "5y"], index=2)
-    chart_height = st.slider("Chart Height", 350, 700, 460, step=50)
+    st.markdown("""<div style="font-family:'Space Mono',monospace;font-size:0.6rem;color:#3A4459;letter-spacing:0.1em;text-transform:uppercase;margin-bottom:0.4rem;">Period</div>""", unsafe_allow_html=True)
+    period = st.radio("Period", ["1mo", "3mo", "6mo", "1y", "2y", "5y", "max"], index=3, label_visibility="collapsed", horizontal=False)
     st.divider()
     st.markdown("""<div style="font-family:'Space Mono',monospace;font-size:0.6rem;color:#3A4459;letter-spacing:0.1em;text-transform:uppercase;margin-bottom:0.4rem;">Overlays</div>""", unsafe_allow_html=True)
     show_ma20 = st.checkbox("MA 20", True)
@@ -235,23 +235,20 @@ if show_rsi:    legend_parts.append("<span style='color:#A78BFA'>▪ RSI 14</spa
 
 st.markdown(f"""<div style="display:flex;gap:1.4rem;align-items:center;margin-bottom:0.5rem;font-family:'Space Mono',monospace;font-size:0.6rem;letter-spacing:0.1em;text-transform:uppercase;">{"  ".join(legend_parts)}</div>""", unsafe_allow_html=True)
 
-try:
-    renderLightweightCharts(charts_to_render, key="quant_charts", height=chart_height)
-except TypeError:
-    try:
-        renderLightweightCharts(charts_to_render, key="quant_charts")
-    except Exception:
-        renderLightweightCharts(charts_to_render)
+# Distribute height: price gets 55%, volume 20%, rsi 25% of total
+num_panels = 1 + (1 if show_volume else 0) + (1 if show_rsi else 0)
+total_h = 600
+if num_panels == 1:
+    heights = [total_h]
+elif num_panels == 2:
+    heights = [int(total_h * 0.65), int(total_h * 0.35)]
+else:
+    heights = [int(total_h * 0.55), int(total_h * 0.22), int(total_h * 0.23)]
 
-st.markdown("<div style='height:0.4rem'></div>", unsafe_allow_html=True)
-with st.expander("▸  Raw Data  ·  Last 60 Sessions"):
-    show_cols = [c for c in ["Date","Open","High","Low","Close","Volume","MA20","MA50","RSI"] if c in df.columns]
-    disp = df.tail(60)[show_cols].copy()
-    for col in ["Open","High","Low","Close","MA20","MA50"]:
-        if col in disp.columns:
-            disp[col] = disp[col].apply(lambda x: f"₹{x:.2f}" if pd.notna(x) else "—")
-    if "RSI" in disp.columns:
-        disp["RSI"] = disp["RSI"].apply(lambda x: f"{x:.1f}" if pd.notna(x) else "—")
-    if "Volume" in disp.columns:
-        disp["Volume"] = disp["Volume"].apply(lambda x: f"{int(x):,}" if pd.notna(x) else "—")
-    st.dataframe(disp, use_container_width=True, hide_index=True)
+for i, h in enumerate(heights):
+    charts_to_render[i]["chart"]["height"] = h
+
+try:
+    renderLightweightCharts(charts_to_render, key="quant_charts")
+except Exception:
+    renderLightweightCharts(charts_to_render)
