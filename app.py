@@ -4,16 +4,21 @@ import pandas as pd
 from datetime import datetime, time as dtime
 import pytz
 from streamlit_lightweight_charts import renderLightweightCharts
+import numpy as np
+from io import StringIO
 
 # ── PAGE CONFIG ───────────────────────────────────────────────────────────────
 st.set_page_config(
     layout="wide",
-    page_title="Terminal",
-    page_icon="💴"
+    page_title="Quant Terminal",
+    page_icon="💴",
+    initial_sidebar_state="expanded"
 )
 
-# ── STYLES ────────────────────────────────────────────────────────────────────
-st.markdown("""
+# ── STYLES (Cached) ────────────────────────────────────────────────────────────
+@st.cache_data
+def get_styles():
+    return """
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@300;400;500;600&display=swap');
 
@@ -68,10 +73,6 @@ html, body, .stApp {
 }
 [data-testid="stSidebar"] .stRadio div[role="radiogroup"] label:hover {
     border-color: rgba(0,229,180,0.3) !important; color: #8892A4 !important;
-}
-[data-testid="stSidebar"] .stRadio div[role="radiogroup"] label[data-baseweb="radio"] input:checked + div,
-[data-testid="stSidebar"] .stRadio [aria-checked="true"] ~ span {
-    color: #00E5B4 !important;
 }
 [data-testid="stSidebar"] .stRadio div[role="radiogroup"] [data-checked="true"] {
     border-color: rgba(0,229,180,0.5) !important; color: #00E5B4 !important; background: rgba(0,229,180,0.05) !important;
@@ -133,124 +134,283 @@ h1, h2, h3 { font-family: 'Space Mono', monospace !important; }
 ::-webkit-scrollbar-thumb { background: #1E2733; border-radius: 2px; }
 ::-webkit-scrollbar-thumb:hover { background: #00E5B4; }
 [data-testid="stHorizontalBlock"] { gap: 0.65rem !important; }
+
+/* ── RESPONSIVE ── */
+@media (max-width: 768px) {
+    .block-container { padding: 1rem 1.5rem !important; }
+    [data-testid="stSidebar"] .block-container { padding: 1.5rem 1rem !important; }
+}
 </style>
-""", unsafe_allow_html=True)
+"""
+
+st.markdown(get_styles(), unsafe_allow_html=True)
 
 
 # ── HELPERS ───────────────────────────────────────────────────────────────────
 
 def compute_rsi(series, period=14):
-    delta    = series.diff()
-    gain     = delta.clip(lower=0)
-    loss     = -delta.clip(upper=0)
-    avg_gain = gain.ewm(com=period - 1, min_periods=period).mean()
-    avg_loss = loss.ewm(com=period - 1, min_periods=period).mean()
-    rs = avg_gain / avg_loss
-    return 100 - (100 / (1 + rs))
+    """Compute RSI with safe division."""
+    try:
+        delta    = series.diff()
+        gain     = delta.clip(lower=0)
+        loss     = -delta.clip(upper=0)
+        avg_gain = gain.ewm(com=period - 1, min_periods=period).mean()
+        avg_loss = loss.ewm(com=period - 1, min_periods=period).mean()
+        
+        # Avoid division by zero
+        avg_loss = avg_loss.replace(0, 1e-10)
+        rs = avg_gain / avg_loss
+        return 100 - (100 / (1 + rs))
+    except Exception as e:
+        st.warning(f"RSI calculation error: {str(e)}")
+        return None
+
+
+def compute_macd(series, fast=12, slow=26, signal=9):
+    """Compute MACD."""
+    try:
+        ema_fast = series.ewm(span=fast).mean()
+        ema_slow = series.ewm(span=slow).mean()
+        macd = ema_fast - ema_slow
+        signal_line = macd.ewm(span=signal).mean()
+        histogram = macd - signal_line
+        return macd, signal_line, histogram
+    except Exception as e:
+        st.warning(f"MACD calculation error: {str(e)}")
+        return None, None, None
+
+
+def compute_bollinger_bands(series, period=20, std_dev=2):
+    """Compute Bollinger Bands."""
+    try:
+        sma = series.rolling(window=period).mean()
+        std = series.rolling(window=period).std()
+        upper_band = sma + (std * std_dev)
+        lower_band = sma - (std * std_dev)
+        return upper_band, sma, lower_band
+    except Exception as e:
+        st.warning(f"Bollinger Bands calculation error: {str(e)}")
+        return None, None, None
+
+
+def compute_atr(high, low, close, period=14):
+    """Compute Average True Range."""
+    try:
+        tr1 = high - low
+        tr2 = abs(high - close.shift())
+        tr3 = abs(low - close.shift())
+        tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+        atr = tr.rolling(window=period).mean()
+        return atr
+    except Exception as e:
+        st.warning(f"ATR calculation error: {str(e)}")
+        return None
 
 
 def fmt_indian(n):
     """Format number in Indian system: 1,00,000 style."""
-    if n is None:
+    if n is None or pd.isna(n):
         return "—"
-    n = int(n)
-    if n >= 10_000_000:
-        return f"{n/10_000_000:.2f} Cr"
-    if n >= 100_000:
-        return f"{n/100_000:.2f} L"
-    s = str(n)
-    if len(s) <= 3:
-        return s
-    last3 = s[-3:]
-    rest  = s[:-3]
-    parts = []
-    while len(rest) > 2:
-        parts.append(rest[-2:])
-        rest = rest[:-2]
-    if rest:
-        parts.append(rest)
-    return ",".join(reversed(parts)) + "," + last3
+    try:
+        n = int(n)
+        if n >= 10_000_000:
+            return f"{n/10_000_000:.2f} Cr"
+        if n >= 100_000:
+            return f"{n/100_000:.2f} L"
+        s = str(n)
+        if len(s) <= 3:
+            return s
+        last3 = s[-3:]
+        rest  = s[:-3]
+        parts = []
+        while len(rest) > 2:
+            parts.append(rest[-2:])
+            rest = rest[:-2]
+        if rest:
+            parts.append(rest)
+        return ",".join(reversed(parts)) + "," + last3
+    except:
+        return "—"
 
 
 def is_nse_open():
     """Returns (is_open: bool, status_str: str)."""
-    ist = pytz.timezone("Asia/Kolkata")
-    now = datetime.now(ist)
-    market_open  = dtime(9, 15)
-    market_close = dtime(15, 30)
-    if now.weekday() >= 5:
-        return False, "CLOSED · Weekend"
-    t = now.time()
-    if market_open <= t <= market_close:
-        return True, "OPEN"
-    if t < market_open:
-        opens_in = datetime.combine(now.date(), market_open)
-        opens_in = ist.localize(opens_in)
-        diff = opens_in - now
-        m = int(diff.seconds / 60)
-        return False, f"PRE-MARKET · Opens in {m}m"
-    return False, "CLOSED · After Hours"
+    try:
+        ist = pytz.timezone("Asia/Kolkata")
+        now = datetime.now(ist)
+        market_open  = dtime(9, 15)
+        market_close = dtime(15, 30)
+        if now.weekday() >= 5:
+            return False, "CLOSED · Weekend"
+        t = now.time()
+        if market_open <= t <= market_close:
+            return True, "OPEN"
+        if t < market_open:
+            opens_in = datetime.combine(now.date(), market_open)
+            opens_in = ist.localize(opens_in)
+            diff = opens_in - now
+            m = int(diff.seconds / 60)
+            return False, f"PRE-MARKET · Opens in {m}m"
+        return False, "CLOSED · After Hours"
+    except Exception as e:
+        return False, f"ERROR · {str(e)[:15]}"
 
 
 def rsi_label(v):
-    if v is None: return "—", "#3A4459"
-    if v >= 70:   return f"{v:.1f} OVERBOUGHT", "#FF4D6A"
-    if v <= 30:   return f"{v:.1f} OVERSOLD",   "#00E5B4"
+    """Return RSI label and color."""
+    if v is None or pd.isna(v): 
+        return "—", "#3A4459"
+    if v >= 70:   
+        return f"{v:.1f} OVERBOUGHT", "#FF4D6A"
+    if v <= 30:   
+        return f"{v:.1f} OVERSOLD",   "#00E5B4"
     return f"{v:.1f} NEUTRAL", "#8892A4"
+
+
+def calculate_performance_metrics(df):
+    """Calculate performance metrics."""
+    try:
+        if len(df) < 2:
+            return {}, {}
+        
+        close = df["Close"].values
+        returns = np.diff(close) / close[:-1]
+        
+        # Sharpe Ratio (annualized, assuming 252 trading days)
+        sharpe = np.mean(returns) / (np.std(returns) + 1e-10) * np.sqrt(252) if len(returns) > 0 else 0
+        
+        # Max Drawdown
+        cumulative = np.cumprod(1 + returns)
+        running_max = np.maximum.accumulate(cumulative)
+        drawdown = (cumulative - running_max) / running_max
+        max_dd = np.min(drawdown) * 100 if len(drawdown) > 0 else 0
+        
+        # Win Rate
+        win_rate = (np.sum(returns > 0) / len(returns) * 100) if len(returns) > 0 else 0
+        
+        # Return
+        total_return = ((close[-1] - close[0]) / close[0]) * 100
+        
+        # Volatility (annualized)
+        volatility = np.std(returns) * np.sqrt(252) * 100
+        
+        metrics = {
+            "sharpe": sharpe,
+            "max_dd": max_dd,
+            "win_rate": win_rate,
+            "total_return": total_return,
+            "volatility": volatility
+        }
+        
+        return metrics, {}
+    except Exception as e:
+        st.warning(f"Performance metrics error: {str(e)}")
+        return {}, {}
 
 
 # ── DATA FETCH ────────────────────────────────────────────────────────────────
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=300)
 def fetch_data(ticker, period, interval):
-    df = yf.download(ticker, period=period, interval=interval, auto_adjust=False)
-    if df.empty:
+    """Fetch OHLCV data with error handling."""
+    try:
+        df = yf.download(
+            ticker, 
+            period=period, 
+            interval=interval, 
+            auto_adjust=False,
+            progress=False  # Suppress progress bar
+        )
+        
+        if df.empty:
+            return None
+        
+        # Handle column names
+        df.columns = [col[0] if isinstance(col, tuple) else col for col in df.columns]
+        df = df.reset_index()
+        
+        # Datetime column name varies by interval
+        date_col = "Datetime" if "Datetime" in df.columns else "Date"
+        df = df.rename(columns={date_col: "Date"})
+        df["Date"] = pd.to_datetime(df["Date"])
+        df["time"] = df["Date"].dt.strftime("%Y-%m-%d")
+        
+        # Technical indicators
+        df["MA20"] = df["Close"].rolling(20).mean()
+        df["MA50"] = df["Close"].rolling(50).mean()
+        df["RSI"]  = compute_rsi(df["Close"])
+        
+        # VWAP (cumulative)
+        df["TP"]   = (df["High"] + df["Low"] + df["Close"]) / 3
+        df["VWAP"] = (df["TP"] * df["Volume"]).cumsum() / df["Volume"].cumsum()
+        
+        # MACD
+        df["MACD"], df["Signal"], df["Histogram"] = compute_macd(df["Close"])
+        
+        # Bollinger Bands
+        df["BB_Upper"], df["BB_Middle"], df["BB_Lower"] = compute_bollinger_bands(df["Close"])
+        
+        # ATR
+        df["ATR"] = compute_atr(df["High"], df["Low"], df["Close"])
+        
+        return df
+    except Exception as e:
+        st.error(f"Error fetching {ticker}: {str(e)}")
         return None
-    df.columns = [col[0] if isinstance(col, tuple) else col for col in df.columns]
-    df = df.reset_index()
-    # Datetime column name varies by interval
-    date_col = "Datetime" if "Datetime" in df.columns else "Date"
-    df = df.rename(columns={date_col: "Date"})
-    df["Date"] = pd.to_datetime(df["Date"])
-    df["time"] = df["Date"].dt.strftime("%Y-%m-%d")
-    df["MA20"] = df["Close"].rolling(20).mean()
-    df["MA50"] = df["Close"].rolling(50).mean()
-    df["RSI"]  = compute_rsi(df["Close"])
-    # VWAP (cumulative)
-    df["TP"]   = (df["High"] + df["Low"] + df["Close"]) / 3
-    df["VWAP"] = (df["TP"] * df["Volume"]).cumsum() / df["Volume"].cumsum()
-    return df
 
 
 @st.cache_data(ttl=86400)
 def fetch_52w(ticker):
-    """Always fetch true 52-week data regardless of display period."""
-    df = yf.download(ticker, period="1y", interval="1d", auto_adjust=False)
-    if df.empty:
+    """Fetch true 52-week data."""
+    try:
+        df = yf.download(ticker, period="1y", interval="1d", auto_adjust=False, progress=False)
+        if df.empty:
+            return None, None
+        df.columns = [col[0] if isinstance(col, tuple) else col for col in df.columns]
+        return float(df["High"].max()), float(df["Low"].min())
+    except Exception as e:
+        st.warning(f"Could not fetch 52W data for {ticker}")
         return None, None
-    df.columns = [col[0] if isinstance(col, tuple) else col for col in df.columns]
-    return float(df["High"].max()), float(df["Low"].min())
 
 
 @st.cache_data(ttl=86400)
 def fetch_avg_vol(ticker):
-    """True 20-day average volume from daily data."""
-    df = yf.download(ticker, period="2mo", interval="1d", auto_adjust=False)
-    if df.empty:
+    """Fetch true 20-day average volume."""
+    try:
+        df = yf.download(ticker, period="2mo", interval="1d", auto_adjust=False, progress=False)
+        if df.empty:
+            return None
+        df.columns = [col[0] if isinstance(col, tuple) else col for col in df.columns]
+        return int(df["Volume"].tail(20).mean())
+    except Exception as e:
+        st.warning(f"Could not fetch avg volume for {ticker}")
         return None
-    df.columns = [col[0] if isinstance(col, tuple) else col for col in df.columns]
-    return int(df["Volume"].tail(20).mean())
 
 
 # ── SESSION STATE ─────────────────────────────────────────────────────────────
 if "recent" not in st.session_state:
     st.session_state.recent = []
 
+if "alerts" not in st.session_state:
+    st.session_state.alerts = []
+
 
 def add_recent(t):
+    """Add ticker to recent list (max 5)."""
     if t not in st.session_state.recent:
         st.session_state.recent.insert(0, t)
-        st.session_state.recent = st.session_state.recent[:5]
+    st.session_state.recent = st.session_state.recent[:5]
+
+
+def add_alert(alert_type, message):
+    """Add alert to session state."""
+    st.session_state.alerts.append({
+        "type": alert_type,
+        "message": message,
+        "timestamp": datetime.now()
+    })
+    # Keep only last 10 alerts
+    st.session_state.alerts = st.session_state.alerts[-10:]
 
 
 # ── SIDEBAR ───────────────────────────────────────────────────────────────────
@@ -331,6 +491,7 @@ with st.sidebar:
     show_ma50  = st.checkbox("MA 50",  True)
     show_vwap  = st.checkbox("VWAP",   False)
     show_prevc = st.checkbox("Prev Close", True)
+    show_bb    = st.checkbox("Bollinger Bands", False)
 
     st.divider()
 
@@ -341,11 +502,34 @@ with st.sidebar:
     )
     show_volume = st.checkbox("Volume",   True)
     show_rsi    = st.checkbox("RSI (14)", True)
+    show_macd   = st.checkbox("MACD",     False)
+
+    st.divider()
+
+    # Alerts Section
+    st.markdown(
+        """<div style="font-family:'Space Mono',monospace;font-size:0.6rem;color:#3A4459;
+        letter-spacing:0.1em;text-transform:uppercase;margin-bottom:0.4rem;">Alerts</div>""",
+        unsafe_allow_html=True
+    )
+    
+    col_alert1, col_alert2 = st.columns(2)
+    with col_alert1:
+        alert_rsi_overbought = st.checkbox("RSI > 70", False, key="alert_rsi_ob")
+    with col_alert2:
+        alert_rsi_oversold = st.checkbox("RSI < 30", False, key="alert_rsi_os")
+    
+    enable_price_alert = st.checkbox("Price Alert", False, key="alert_price_en")
+    if enable_price_alert:
+        price_alert_value = st.number_input("Alert Price (₹)", value=0.0, step=1.0)
+    else:
+        price_alert_value = None
 
     st.divider()
 
     if st.button("↺ Refresh Data"):
         st.cache_data.clear()
+        st.toast("Cache cleared!", icon="✅")
         st.rerun()
 
     # Market status
@@ -365,7 +549,7 @@ with st.sidebar:
 st.markdown(
     f"""<div style="display:flex;align-items:center;justify-content:space-between;
     padding:0.6rem 0 1.4rem 0;border-bottom:1px solid #13181F;margin-bottom:1.4rem;">
-  <div style="display:flex;align-items:center;gap:1rem;">
+  <div style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap;">
     <span style="font-family:'Space Mono',monospace;font-size:1.1rem;font-weight:700;
         color:#00E5B4;letter-spacing:0.08em;">QUANT/TERMINAL</span>
     <span style="background:rgba(0,229,180,0.08);border:1px solid rgba(0,229,180,0.2);
@@ -394,13 +578,13 @@ with st.spinner(f"Fetching {ticker}  ·  {period}  ·  {interval_label} ..."):
     w52_h, w52_l = fetch_52w(ticker)
     true_avg_vol = fetch_avg_vol(ticker)
 
-if df is None:
-    st.error(f"No data found for '{ticker}'")
-    st.info("Try: RELIANCE.NS  ·  INFY.NS  ·  TCS.NS  ·  HDFCBANK.NS  ·  ^NSEI")
+if df is None or len(df) == 0:
+    st.error(f"❌ No data found for '{ticker}'")
+    st.info("💡 Try: RELIANCE.NS  ·  INFY.NS  ·  TCS.NS  ·  HDFCBANK.NS  ·  ^NSEI")
     st.stop()
 
 if len(df) < 55:
-    st.warning("Limited history — MA50 / RSI readings may be inaccurate. Try a longer period.")
+    st.warning("⚠️ Limited history — MA50 / RSI readings may be inaccurate. Try a longer period.")
 
 add_recent(ticker)
 
@@ -428,6 +612,37 @@ avg_vol20  = true_avg_vol if true_avg_vol else (int(df["Volume"].tail(20).mean()
 
 rsi_txt, rsi_color = rsi_label(last_rsi)
 date_str = last["Date"].strftime("%d %b %Y") if hasattr(last["Date"], "strftime") else ""
+
+# Calculate performance metrics
+perf_metrics, _ = calculate_performance_metrics(df)
+
+# Alert Logic
+alerts_to_show = []
+
+if alert_rsi_overbought and last_rsi and last_rsi > 70:
+    alerts_to_show.append(("⚠️ RSI OVERBOUGHT", f"RSI at {last_rsi:.1f}", "warning"))
+    add_alert("rsi_overbought", f"{ticker}: RSI {last_rsi:.1f}")
+
+if alert_rsi_oversold and last_rsi and last_rsi < 30:
+    alerts_to_show.append(("⚠️ RSI OVERSOLD", f"RSI at {last_rsi:.1f}", "info"))
+    add_alert("rsi_oversold", f"{ticker}: RSI {last_rsi:.1f}")
+
+if price_alert_value and price_alert_value > 0:
+    if close > price_alert_value * 1.01:  # 1% above alert price
+        alerts_to_show.append(("📈 PRICE ABOVE", f"₹{close:,.2f} vs Alert ₹{price_alert_value:,.2f}", "warning"))
+    elif close < price_alert_value * 0.99:  # 1% below alert price
+        alerts_to_show.append(("📉 PRICE BELOW", f"₹{close:,.2f} vs Alert ₹{price_alert_value:,.2f}", "error"))
+
+# Display active alerts
+if alerts_to_show:
+    for alert_title, alert_msg, alert_type in alerts_to_show:
+        if alert_type == "warning":
+            st.warning(f"{alert_title}: {alert_msg}")
+        elif alert_type == "error":
+            st.error(f"{alert_title}: {alert_msg}")
+        else:
+            st.info(f"{alert_title}: {alert_msg}")
+
 
 # ── TICKER HEADER ─────────────────────────────────────────────────────────────
 st.markdown(
@@ -479,6 +694,48 @@ m3.metric("RSI 14",      f"{last_rsi:.1f}" if last_rsi else "—")
 m4.metric("Avg Vol 20d", fmt_indian(avg_vol20))
 
 st.markdown("<div style='height:0.8rem'></div>", unsafe_allow_html=True)
+
+# ── PERFORMANCE METRICS ROW ───────────────────────────────────────────────────
+if perf_metrics:
+    st.markdown(
+        """<div style="font-family:'Space Mono',monospace;font-size:0.6rem;color:#3A4459;
+        letter-spacing:0.1em;text-transform:uppercase;margin-bottom:0.5rem;">Performance Metrics</div>""",
+        unsafe_allow_html=True
+    )
+    
+    p1, p2, p3, p4, p5 = st.columns(5)
+    
+    p1.metric(
+        "Sharpe Ratio",
+        f"{perf_metrics.get('sharpe', 0):.2f}",
+        f"{perf_metrics.get('sharpe', 0):+.2f}"
+    )
+    
+    p2.metric(
+        "Max Drawdown",
+        f"{perf_metrics.get('max_dd', 0):.2f}%",
+        f"{perf_metrics.get('max_dd', 0):+.2f}%"
+    )
+    
+    p3.metric(
+        "Win Rate",
+        f"{perf_metrics.get('win_rate', 0):.1f}%",
+        f"{perf_metrics.get('win_rate', 0):+.1f}%"
+    )
+    
+    p4.metric(
+        "Total Return",
+        f"{perf_metrics.get('total_return', 0):.2f}%",
+        f"{perf_metrics.get('total_return', 0):+.2f}%"
+    )
+    
+    p5.metric(
+        "Volatility (Annual)",
+        f"{perf_metrics.get('volatility', 0):.2f}%",
+        f"{perf_metrics.get('volatility', 0):+.2f}%"
+    )
+    
+    st.markdown("<div style='height:0.8rem'></div>", unsafe_allow_html=True)
 
 
 # ── CHART HELPERS ─────────────────────────────────────────────────────────────
@@ -557,6 +814,21 @@ if show_vwap and last_vwap:
         "options": {"color": "#E879F9", "lineWidth": 1, "lineStyle": 2}
     })
 
+# Bollinger Bands
+if show_bb:
+    bb_upper = df[["time","BB_Upper"]].dropna()
+    bb_lower = df[["time","BB_Lower"]].dropna()
+    price_series.append({
+        "type": "Line",
+        "data": [{"time": r["time"], "value": float(r["BB_Upper"])} for _, r in bb_upper.iterrows()],
+        "options": {"color": "rgba(200,150,255,0.4)", "lineWidth": 1, "lineStyle": 2}
+    })
+    price_series.append({
+        "type": "Line",
+        "data": [{"time": r["time"], "value": float(r["BB_Lower"])} for _, r in bb_lower.iterrows()],
+        "options": {"color": "rgba(200,150,255,0.4)", "lineWidth": 1, "lineStyle": 2}
+    })
+
 # Previous close line
 if show_prevc:
     price_series.append({
@@ -565,7 +837,7 @@ if show_prevc:
         "options": {"color": "rgba(200,208,220,0.25)", "lineWidth": 1, "lineStyle": 2}
     })
 
-price_opts = base_opts(show_time=not (show_volume or show_rsi))
+price_opts = base_opts(show_time=not (show_volume or show_rsi or show_macd))
 price_opts["watermark"] = {
     "visible": True, "fontSize": 52,
     "horzAlign": "center", "vertAlign": "center",
@@ -581,7 +853,7 @@ if show_volume and "Volume" in df.columns:
     for _, row in df.iterrows():
         c = "#00E5B4" if float(row["Close"]) >= float(row["Open"]) else "#FF4D6A"
         vol_data.append({"time": row["time"], "value": float(row["Volume"]), "color": c + "88"})
-    vol_opts = base_opts(show_time=not show_rsi)
+    vol_opts = base_opts(show_time=not (show_rsi or show_macd))
     vol_opts["rightPriceScale"]["minValue"] = 0
     charts_to_render.append({
         "chart": vol_opts,
@@ -596,7 +868,7 @@ if show_rsi:
     rsi_data = [{"time": r["time"], "value": float(r["RSI"])} for _, r in rsi_df.iterrows()]
     ob_line  = [{"time": r["time"], "value": 70.0} for _, r in rsi_df.iterrows()]
     os_line  = [{"time": r["time"], "value": 30.0} for _, r in rsi_df.iterrows()]
-    rsi_opts = base_opts(show_time=True)
+    rsi_opts = base_opts(show_time=not show_macd)
     rsi_opts["rightPriceScale"]["autoScale"] = False
     rsi_opts["rightPriceScale"]["minValue"]  = 0
     rsi_opts["rightPriceScale"]["maxValue"]  = 100
@@ -610,6 +882,32 @@ if show_rsi:
     })
 
 
+# ── MACD PANEL ─────────��──────────────────────────────────────────────────────
+if show_macd:
+    macd_df = df[["time","MACD","Signal","Histogram"]].dropna()
+    
+    macd_data = [{"time": r["time"], "value": float(r["MACD"])} for _, r in macd_df.iterrows()]
+    signal_data = [{"time": r["time"], "value": float(r["Signal"])} for _, r in macd_df.iterrows()]
+    
+    histogram_data = []
+    for _, row in macd_df.iterrows():
+        hist_val = float(row["Histogram"])
+        color = "#00E5B4" if hist_val >= 0 else "#FF4D6A"
+        histogram_data.append({"time": row["time"], "value": hist_val, "color": color + "88"})
+    
+    macd_opts = base_opts(show_time=True)
+    macd_opts["rightPriceScale"]["autoScale"] = True
+    
+    charts_to_render.append({
+        "chart": macd_opts,
+        "series": [
+            {"type": "Line", "data": macd_data, "options": {"color": "#4D9FFF", "lineWidth": 1}},
+            {"type": "Line", "data": signal_data, "options": {"color": "#F5A623", "lineWidth": 1}},
+            {"type": "Histogram", "data": histogram_data, "options": {"priceScaleId": ""}},
+        ]
+    })
+
+
 # ── HEIGHTS ───────────────────────────────────────────────────────────────────
 total_h = 600
 num_panels = len(charts_to_render)
@@ -617,8 +915,10 @@ if num_panels == 1:
     heights = [total_h]
 elif num_panels == 2:
     heights = [int(total_h * 0.65), int(total_h * 0.35)]
+elif num_panels == 3:
+    heights = [int(total_h * 0.50), int(total_h * 0.25), int(total_h * 0.25)]
 else:
-    heights = [int(total_h * 0.55), int(total_h * 0.22), int(total_h * 0.23)]
+    heights = [int(total_h * 0.45), int(total_h * 0.18), int(total_h * 0.18), int(total_h * 0.19)]
 
 for i, h in enumerate(heights):
     charts_to_render[i]["chart"]["height"] = h
@@ -632,20 +932,63 @@ legend_parts = ["<span style='color:#3A4459'>● Candles</span>"]
 if show_ma20:   legend_parts.append(f"<span style='color:#F5A623'>— MA20{ma20_str}</span>")
 if show_ma50:   legend_parts.append(f"<span style='color:#4D9FFF'>— MA50{ma50_str}</span>")
 if show_vwap:   legend_parts.append(f"<span style='color:#E879F9'>-- VWAP{vwap_str}</span>")
+if show_bb:     legend_parts.append(f"<span style='color:rgba(200,150,255,0.6)'>-- BB Bands</span>")
 if show_prevc:  legend_parts.append(f"<span style='color:rgba(200,208,220,0.4)'>-- Prev Close ₹{prev_close:,.2f}</span>")
 if show_volume: legend_parts.append("<span style='color:#3A4459'>▪ Volume</span>")
 if show_rsi:    legend_parts.append("<span style='color:#A78BFA'>▪ RSI 14</span>")
+if show_macd:   legend_parts.append("<span style='color:#4D9FFF'>▪ MACD</span>")
 
 st.markdown(
     f"""<div style="display:flex;gap:1.4rem;align-items:center;margin-bottom:0.5rem;
-    font-family:'Space Mono',monospace;font-size:0.6rem;letter-spacing:0.1em;text-transform:uppercase;">
-    {"  ".join(legend_parts)}</div>""",
+    font-family:'Space Mono',monospace;font-size:0.6rem;letter-spacing:0.1em;text-transform:uppercase;flex-wrap:wrap;">
+    {"  ·  ".join(legend_parts)}</div>""",
     unsafe_allow_html=True
 )
 
 
-# ── RENDER ────────────────────────────────────────────────────────────────────
+# ── RENDER CHARTS ─��───────────────────────────────────────────────────────────
 try:
     renderLightweightCharts(charts_to_render, key="quant_charts")
-except Exception:
-    renderLightweightCharts(charts_to_render)
+except Exception as e:
+    st.error(f"Chart rendering error: {str(e)}")
+    st.info("Try selecting different indicators or refreshing the page.")
+
+
+# ── EXPORT SECTION ────────────────────────────────────────────────────────────
+st.divider()
+st.markdown(
+    """<div style="font-family:'Space Mono',monospace;font-size:0.6rem;color:#3A4459;
+    letter-spacing:0.1em;text-transform:uppercase;margin-bottom:0.5rem;">Export Data</div>""",
+    unsafe_allow_html=True
+)
+
+col_exp1, col_exp2 = st.columns(2)
+
+# Export as CSV
+csv_data = df[[col for col in df.columns if col not in ["Date", "time"]]].to_csv(index=False)
+col_exp1.download_button(
+    label="📥 Download CSV",
+    data=csv_data,
+    file_name=f"{ticker}_{period}_{interval_label}.csv",
+    mime="text/csv"
+)
+
+# Export as JSON
+json_data = df[[col for col in df.columns if col not in ["Date", "time"]]].to_json(orient="records")
+col_exp2.download_button(
+    label="📥 Download JSON",
+    data=json_data,
+    file_name=f"{ticker}_{period}_{interval_label}.json",
+    mime="application/json"
+)
+
+
+# ── FOOTER ────────────────────────────────────────────────────────────────────
+st.divider()
+st.markdown(
+    """<div style="font-family:'Space Mono',monospace;font-size:0.55rem;color:#1E2733;
+    letter-spacing:0.08em;text-align:center;margin-top:2rem;">
+    Data sourced from Yahoo Finance · 15-minute delayed · Not investment advice · For educational purposes only
+    </div>""",
+    unsafe_allow_html=True
+)
