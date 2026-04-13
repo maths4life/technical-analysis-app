@@ -8,8 +8,8 @@ from streamlit_lightweight_charts import renderLightweightCharts
 # ── PAGE CONFIG ───────────────────────────────────────────────────────────────
 st.set_page_config(
     layout="wide",
-    page_title="Terminal",
-    page_icon="💴"
+    page_title="Quant Terminal",
+    page_icon="📈"
 )
 
 # ── STYLES ────────────────────────────────────────────────────────────────────
