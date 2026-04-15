@@ -671,32 +671,27 @@ with tab_chart:
         }
 
     # ── CANDLE DATA ───────────────────────────────────────────────────────
-    # Clean data first
-# 1. Clean data (Keep this part, it's efficient)
+# Clean data
 df = df.replace([np.inf, -np.inf], np.nan)
 df = df.dropna(subset=["Open", "High", "Low", "Close"])
 
-# 2. Rename columns to match your desired dictionary keys
-# This avoids manual mapping in a loop
-rename_map = {
+# Select + rename
+candles_df = df[["time", "Open", "High", "Low", "Close"]].rename(columns={
     "Open": "open",
     "High": "high",
     "Low": "low",
     "Close": "close"
-}
-target_cols = ["time", "Open", "High", "Low", "Close"]
+})
 
-# 3. Create the list of dictionaries instantly
-candles = df[target_cols].rename(columns=rename_map).to_dict('records')
-    price_series = [{
-        "type": "Candlestick", "data": candles,
-        "options": {
-            "upColor": "#00E5B4", "downColor": "#FF4D6A",
-            "borderVisible": False,
-            "wickUpColor": "#00E5B4", "wickDownColor": "#FF4D6A",
-        }
-    }]
+# FINAL SAFETY (very important)
+candles_df = candles_df.dropna()
 
+# Convert to float explicitly
+for col in ["open", "high", "low", "close"]:
+    candles_df[col] = candles_df[col].astype(float)
+
+# Convert to dict
+candles = candles_df.to_dict("records")
     # MA20
     if show_ma20 and last_ma20:
         ma20d = df[["time","MA20"]].dropna()
