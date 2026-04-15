@@ -672,23 +672,22 @@ with tab_chart:
 
     # ── CANDLE DATA ───────────────────────────────────────────────────────
     # Clean data first
+# 1. Clean data (Keep this part, it's efficient)
 df = df.replace([np.inf, -np.inf], np.nan)
 df = df.dropna(subset=["Open", "High", "Low", "Close"])
 
-# Build candles safely
-candles = []
+# 2. Rename columns to match your desired dictionary keys
+# This avoids manual mapping in a loop
+rename_map = {
+    "Open": "open",
+    "High": "high",
+    "Low": "low",
+    "Close": "close"
+}
+target_cols = ["time", "Open", "High", "Low", "Close"]
 
-for _, row in df.iterrows():
-    if any(pd.isna([row["Open"], row["High"], row["Low"], row["Close"]])):
-        continue
-
-    candles.append({
-        "time": row["time"],
-        "open": float(row["Open"]),
-        "high": float(row["High"]),
-        "low": float(row["Low"]),
-        "close": float(row["Close"]),
-    })
+# 3. Create the list of dictionaries instantly
+candles = df[target_cols].rename(columns=rename_map).to_dict('records')
     price_series = [{
         "type": "Candlestick", "data": candles,
         "options": {
