@@ -671,17 +671,24 @@ with tab_chart:
         }
 
     # ── CANDLE DATA ───────────────────────────────────────────────────────
-    candles = (
-        df[["time","Open","High","Low","Close"]]
-        .rename(columns={"Open":"open","High":"high","Low":"low","Close":"close"})
-        .to_dict("records")
-    )
-    for r in candles:
-        r["open"]  = float(r["open"])
-        r["high"]  = float(r["high"])
-        r["low"]   = float(r["low"])
-        r["close"] = float(r["close"])
+    # Clean data first
+df = df.replace([np.inf, -np.inf], np.nan)
+df = df.dropna(subset=["Open", "High", "Low", "Close"])
 
+# Build candles safely
+candles = []
+
+for _, row in df.iterrows():
+    if any(pd.isna([row["Open"], row["High"], row["Low"], row["Close"]])):
+        continue
+
+    candles.append({
+        "time": row["time"],
+        "open": float(row["Open"]),
+        "high": float(row["High"]),
+        "low": float(row["Low"]),
+        "close": float(row["Close"]),
+    })
     price_series = [{
         "type": "Candlestick", "data": candles,
         "options": {
