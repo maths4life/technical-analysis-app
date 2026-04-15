@@ -672,27 +672,27 @@ with tab_chart:
 
     # ── CANDLE DATA ───────────────────────────────────────────────────────
 # Clean data
-df = df.replace([np.inf, -np.inf], np.nan)
-df = df.dropna(subset=["Open", "High", "Low", "Close"])
-
-# Select + rename
-candles_df = df[["time", "Open", "High", "Low", "Close"]].rename(columns={
-    "Open": "open",
-    "High": "high",
-    "Low": "low",
-    "Close": "close"
-})
-
-# FINAL SAFETY (very important)
-candles_df = candles_df.dropna()
-
-# Convert to float explicitly
-for col in ["open", "high", "low", "close"]:
-    candles_df[col] = candles_df[col].astype(float)
-
-# Convert to dict
-candles = candles_df.to_dict("records")
-    # MA20
+    df = df.replace([np.inf, -np.inf], np.nan)
+    df = df.dropna(subset=["Open", "High", "Low", "Close"])
+    
+    # Select + rename
+    candles_df = df[["time", "Open", "High", "Low", "Close"]].rename(columns={
+        "Open": "open",
+        "High": "high",
+        "Low": "low",
+        "Close": "close"
+    })
+    
+    # FINAL SAFETY (very important)
+    candles_df = candles_df.dropna()
+    
+    # Convert to float explicitly
+    for col in ["open", "high", "low", "close"]:
+        candles_df[col] = candles_df[col].astype(float)
+    
+    # Convert to dict
+    candles = candles_df.to_dict("records")
+        # MA20
    if show_ma20 and last_ma20 is not None:
         ma20d = df[["time","MA20"]].dropna()
         price_series.append({
