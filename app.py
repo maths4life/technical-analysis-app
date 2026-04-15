@@ -693,7 +693,7 @@ for col in ["open", "high", "low", "close"]:
 # Convert to dict
 candles = candles_df.to_dict("records")
     # MA20
-    if show_ma20 and last_ma20:
+   if show_ma20 and last_ma20 is not None:
         ma20d = df[["time","MA20"]].dropna()
         price_series.append({
             "type": "Line",
