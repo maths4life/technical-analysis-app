@@ -671,109 +671,109 @@ with tab_chart:
         }
 
     # ── CANDLE DATA ───────────────────────────────────────────────────────
-# Clean data
-df = df.replace([np.inf, -np.inf], np.nan)
-df = df.dropna(subset=["Open", "High", "Low", "Close"])
-
-# Select + rename
-candles_df = df[["time", "Open", "High", "Low", "Close"]].rename(columns={
-    "Open": "open",
-    "High": "high",
-    "Low": "low",
-    "Close": "close"
-})
-
-# FINAL SAFETY
-candles_df = candles_df.dropna()
-
-# Convert to float
-for col in ["open", "high", "low", "close"]:
-    candles_df[col] = candles_df[col].astype(float)
-
-# Convert to dict
-candles = candles_df.to_dict("records")
-
-
-# ───────── PRICE SERIES START ─────────
-price_series = [{
-    "type": "Candlestick",
-    "data": candles,
-    "options": {
-        "upColor": "#00E5B4",
-        "downColor": "#FF4D6A",
-        "borderVisible": False,
-        "wickUpColor": "#00E5B4",
-        "wickDownColor": "#FF4D6A",
-    }
-}]
-
-# MA20
-if show_ma20 and last_ma20 is not None:
-    ma20d = df[["time","MA20"]].dropna()
-    price_series.append({
-        "type": "Line",
-        "data": [{"time": r["time"], "value": float(r["MA20"])} for _, r in ma20d.iterrows()],
-        "options": {"color": "#F5A623", "lineWidth": 1}
-    })
-
-# MA50
-if show_ma50 and last_ma50 is not None:
-    ma50d = df[["time","MA50"]].dropna()
-    price_series.append({
-        "type": "Line",
-        "data": [{"time": r["time"], "value": float(r["MA50"])} for _, r in ma50d.iterrows()],
-        "options": {"color": "#4D9FFF", "lineWidth": 1}
-    })
-
-# Bollinger Bands
-if show_bb:
-    bb_df = df[["time","BB_upper","BB_mid","BB_lower"]].dropna()
-    price_series.append({
-        "type": "Line",
-        "data": [{"time": r["time"], "value": float(r["BB_upper"])} for _, r in bb_df.iterrows()],
-        "options": {"color": "rgba(147,112,219,0.7)", "lineWidth": 1, "lineStyle": 2}
-    })
-    price_series.append({
-        "type": "Line",
-        "data": [{"time": r["time"], "value": float(r["BB_mid"])} for _, r in bb_df.iterrows()],
-        "options": {"color": "rgba(147,112,219,0.35)", "lineWidth": 1, "lineStyle": 2}
-    })
-    price_series.append({
-        "type": "Line",
-        "data": [{"time": r["time"], "value": float(r["BB_lower"])} for _, r in bb_df.iterrows()],
-        "options": {"color": "rgba(147,112,219,0.7)", "lineWidth": 1, "lineStyle": 2}
-    })
-
-# VWAP
-if show_vwap and last_vwap is not None:
-    vwapd = df[["time","VWAP"]].dropna()
-    price_series.append({
-        "type": "Line",
-        "data": [{"time": r["time"], "value": float(r["VWAP"])} for _, r in vwapd.iterrows()],
-        "options": {"color": "#E879F9", "lineWidth": 1, "lineStyle": 2}
-    })
-
-# Previous close
-if show_prevc:
-    price_series.append({
-        "type": "Line",
-        "data": [{"time": r["time"], "value": float(prev_close)} for r in candles],
-        "options": {"color": "rgba(200,208,220,0.25)", "lineWidth": 1, "lineStyle": 2}
-    })
-
-
-# Chart options
-price_opts = base_opts(show_time=not (show_volume or show_macd or show_rsi))
-price_opts["watermark"] = {
-    "visible": True,
-    "fontSize": 52,
-    "horzAlign": "center",
-    "vertAlign": "center",
-    "color": "rgba(255,255,255,0.018)",
-    "text": ticker,
-}
-
-charts_to_render = [{"chart": price_opts, "series": price_series}]
+        # Clean data
+        df = df.replace([np.inf, -np.inf], np.nan)
+        df = df.dropna(subset=["Open", "High", "Low", "Close"])
+        
+        # Select + rename
+        candles_df = df[["time", "Open", "High", "Low", "Close"]].rename(columns={
+            "Open": "open",
+            "High": "high",
+            "Low": "low",
+            "Close": "close"
+        })
+        
+        # FINAL SAFETY
+        candles_df = candles_df.dropna()
+        
+        # Convert to float
+        for col in ["open", "high", "low", "close"]:
+            candles_df[col] = candles_df[col].astype(float)
+        
+        # Convert to dict
+        candles = candles_df.to_dict("records")
+        
+        
+        # ───────── PRICE SERIES START ─────────
+        price_series = [{
+            "type": "Candlestick",
+            "data": candles,
+            "options": {
+                "upColor": "#00E5B4",
+                "downColor": "#FF4D6A",
+                "borderVisible": False,
+                "wickUpColor": "#00E5B4",
+                "wickDownColor": "#FF4D6A",
+            }
+        }]
+        
+        # MA20
+        if show_ma20 and last_ma20 is not None:
+            ma20d = df[["time","MA20"]].dropna()
+            price_series.append({
+                "type": "Line",
+                "data": [{"time": r["time"], "value": float(r["MA20"])} for _, r in ma20d.iterrows()],
+                "options": {"color": "#F5A623", "lineWidth": 1}
+            })
+        
+        # MA50
+        if show_ma50 and last_ma50 is not None:
+            ma50d = df[["time","MA50"]].dropna()
+            price_series.append({
+                "type": "Line",
+                "data": [{"time": r["time"], "value": float(r["MA50"])} for _, r in ma50d.iterrows()],
+                "options": {"color": "#4D9FFF", "lineWidth": 1}
+            })
+        
+        # Bollinger Bands
+        if show_bb:
+            bb_df = df[["time","BB_upper","BB_mid","BB_lower"]].dropna()
+            price_series.append({
+                "type": "Line",
+                "data": [{"time": r["time"], "value": float(r["BB_upper"])} for _, r in bb_df.iterrows()],
+                "options": {"color": "rgba(147,112,219,0.7)", "lineWidth": 1, "lineStyle": 2}
+            })
+            price_series.append({
+                "type": "Line",
+                "data": [{"time": r["time"], "value": float(r["BB_mid"])} for _, r in bb_df.iterrows()],
+                "options": {"color": "rgba(147,112,219,0.35)", "lineWidth": 1, "lineStyle": 2}
+            })
+            price_series.append({
+                "type": "Line",
+                "data": [{"time": r["time"], "value": float(r["BB_lower"])} for _, r in bb_df.iterrows()],
+                "options": {"color": "rgba(147,112,219,0.7)", "lineWidth": 1, "lineStyle": 2}
+            })
+        
+        # VWAP
+        if show_vwap and last_vwap is not None:
+            vwapd = df[["time","VWAP"]].dropna()
+            price_series.append({
+                "type": "Line",
+                "data": [{"time": r["time"], "value": float(r["VWAP"])} for _, r in vwapd.iterrows()],
+                "options": {"color": "#E879F9", "lineWidth": 1, "lineStyle": 2}
+            })
+        
+        # Previous close
+        if show_prevc:
+            price_series.append({
+                "type": "Line",
+                "data": [{"time": r["time"], "value": float(prev_close)} for r in candles],
+                "options": {"color": "rgba(200,208,220,0.25)", "lineWidth": 1, "lineStyle": 2}
+            })
+        
+        
+        # Chart options
+        price_opts = base_opts(show_time=not (show_volume or show_macd or show_rsi))
+        price_opts["watermark"] = {
+            "visible": True,
+            "fontSize": 52,
+            "horzAlign": "center",
+            "vertAlign": "center",
+            "color": "rgba(255,255,255,0.018)",
+            "text": ticker,
+        }
+        
+        charts_to_render = [{"chart": price_opts, "series": price_series}]
 
     # ── VOLUME PANEL ──────────────────────────────────────────────────────
     if show_volume and "Volume" in df.columns:
