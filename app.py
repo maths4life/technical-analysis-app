@@ -18,8 +18,8 @@ st.markdown("""
 @import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@300;400;500;600&display=swap');
 
 html, body, .stApp {
-    background-color: #B1BFE3 !important;
-    color: #0E0E0F !important;
+    background-color: #080A0F !important;
+    color: #afc4fa !important;
     font-family: 'DM Sans', sans-serif !important;
 }
 .block-container { padding: 1.5rem 2.5rem 2rem 2.5rem !important; max-width: 100% !important; }
