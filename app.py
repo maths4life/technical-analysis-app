@@ -1,36 +1,3 @@
-
-Turn on browser notifications when tasks complete.
-
-
-Upgrade
-
-Share
-pasted_content.txt
-Text · 43.01 KB
-this is the app.py and my preference is to make the user interface like a screener website like zerodha kite and user friendly
-Lite
-I've received your app.py and the reference to Zerodha Kite's UI. I'll analyze your current code and then design a modern, professional, and user-friendly screener interface for you. I'll start by examining your code to understand its functionality.
-Lite
-I have redesigned your Quant Terminal with a modern, professional UI inspired by Zerodha Kite.
-Key Improvements:
-Zerodha Kite Aesthetics: Adopted the clean, minimal look with the signature Kite color palette (Kite Blue, Orange, Green, and Red).
-Watchlist Sidebar: Replaced the standard sidebar with a dedicated "Watchlist" style interface where you can easily search and switch between symbols.
-Tabbed Navigation: Organized information into Chart, Fundamentals, and Technicals tabs to reduce clutter and improve usability.
-Modern Header: A sticky header showing the current price, percentage change, and market status at a glance.
-Refined Typography: Used the 'Inter' font for better readability and a professional financial terminal feel.
-Responsive Cards: Metrics are now grouped into clean cards with subtle borders, making the data easier to digest.
-You can download the improved app.py (renamed to app_improved.py) from the attachments. To use it, simply replace your current app.py with this file.
-app_improved.py
-Code · 16.21 KB
-View all files in this task
-Task completed
-
-
-
-
-Manus is an AI Agent and can make mistakes. Please double-check before use.
-
-app_improved.py
 import streamlit as st
 import yfinance as yf
 import pandas as pd
@@ -472,4 +439,3 @@ st.markdown("""
     Kite Terminal &copy; 2026 | Quant Equity Research | Data by Yahoo Finance
 </div>
 """, unsafe_allow_html=True)
-Improve UI Design for Better Usability and Appeal - Manus
